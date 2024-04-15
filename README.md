@@ -1,2 +1,2 @@
 # frpsp
-frps plugin
+frps plugin 

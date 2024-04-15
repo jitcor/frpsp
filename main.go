@@ -70,7 +70,7 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 	insertData := `
 		INSERT INTO ip (host, timestamp,isBlacked) VALUES (?, ?,?);
 	`
-	_, err = db.Exec(insertData, strings.Split(frpspReq.Content.RemoteAddr, ":")[0], time.Now().Unix(), count > 4)
+	_, err = db.Exec(insertData, remoteAddr, time.Now().Unix(), count > 4)
 	if err != nil {
 		return
 	}
