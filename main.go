@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -66,7 +67,8 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 		}
 		count++
 	}
-
+	wg.Lock()
+	defer wg.Unlock()
 	insertData := `
 		INSERT INTO ip (host, timestamp,isBlacked) VALUES (?, ?,?);
 	`
@@ -78,6 +80,7 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 var db *sql.DB
+var wg sync.RWMutex
 
 func main() {
 	if db == nil {
