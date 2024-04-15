@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -44,8 +45,8 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 		err = fmt.Errorf("db is nil")
 		return
 	}
-
-	rows, e := db.Query("SELECT host,timestamp,isBlacked FROM ip WHERE timestamp >= ?", time.Now().Second()-10*60)
+	remoteAddr := strings.Split(frpspReq.Content.RemoteAddr, ":")[0]
+	rows, e := db.Query("SELECT host,timestamp,isBlacked FROM ip WHERE timestamp >= ? and host = ?", time.Now().Unix()-10*60, remoteAddr)
 	if e != nil {
 		err = e
 		return
@@ -69,7 +70,7 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 	insertData := `
 		INSERT INTO ip (host, timestamp,isBlacked) VALUES (?, ?,?);
 	`
-	_, err = db.Exec(insertData, frpspReq.Content.RemoteAddr, time.Now().Second(), count >= 3)
+	_, err = db.Exec(insertData, strings.Split(frpspReq.Content.RemoteAddr, ":")[0], time.Now().Unix(), count > 4)
 	if err != nil {
 		return
 	}
