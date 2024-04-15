@@ -1,5 +1,6 @@
 package main
 
+//ref:https://github.com/fatedier/frp/blob/v0.38.0/doc/server_plugin.md
 import (
 	"database/sql"
 	"encoding/json"
