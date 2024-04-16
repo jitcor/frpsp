@@ -53,6 +53,7 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 		err = e
 		return
 	}
+	defer rows.Close()
 	var host string
 	var timestamp int
 	var isBlocked bool
