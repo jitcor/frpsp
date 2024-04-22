@@ -48,7 +48,46 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	remoteAddr := strings.Split(frpspReq.Content.RemoteAddr, ":")[0]
-	rows, e := db.Query("SELECT host,timestamp,isBlacked FROM ip WHERE timestamp >= ? and host = ?", time.Now().Unix()-10*60, remoteAddr)
+	var isBlocked bool
+	var count int
+	count, err = checkIp(remoteAddr, 10*time.Minute)
+	if err != nil {
+		return
+	}
+	if count < 4 {
+		count, err = checkIp(remoteAddr, 24*time.Hour)
+		if err != nil {
+			return
+		}
+		if count < 20 {
+			count, err = checkIp(remoteAddr, 7*24*time.Hour)
+			if err != nil {
+				return
+			}
+			isBlocked = count > 60
+		} else {
+			isBlocked = true
+		}
+	} else {
+		isBlocked = true
+	}
+	if isBlocked {
+		http.Error(res, `{"reject": true,"reject_reason": "invalid user"}`, 200)
+		return
+	}
+	wg.Lock()
+	defer wg.Unlock()
+	insertData := `
+		INSERT INTO ip (host, timestamp,isBlacked) VALUES (?, ?,?);
+	`
+	_, err = db.Exec(insertData, remoteAddr, time.Now().Unix(), isBlocked)
+	if err != nil {
+		return
+	}
+	http.Error(res, `{"reject": false,"unchange": true}`, 200)
+}
+func checkIp(remoteAddr string, interval time.Duration) (count int, err error) {
+	rows, e := db.Query("SELECT host,timestamp FROM ip WHERE timestamp >= ? and host = ?", time.Now().Add(-interval).Unix(), remoteAddr)
 	if e != nil {
 		err = e
 		return
@@ -56,29 +95,14 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 	defer rows.Close()
 	var host string
 	var timestamp int
-	var isBlocked bool
-	var count int
 	for rows.Next() {
-		err = rows.Scan(&host, &timestamp, &isBlocked)
+		err = rows.Scan(&host, &timestamp)
 		if err != nil {
-			return
-		}
-		if isBlocked {
-			http.Error(res, `{"reject": true,"reject_reason": "invalid user"}`, 200)
 			return
 		}
 		count++
 	}
-	wg.Lock()
-	defer wg.Unlock()
-	insertData := `
-		INSERT INTO ip (host, timestamp,isBlacked) VALUES (?, ?,?);
-	`
-	_, err = db.Exec(insertData, remoteAddr, time.Now().Unix(), count > 4)
-	if err != nil {
-		return
-	}
-	http.Error(res, `{"reject": false,"unchange": true}`, 200)
+	return
 }
 
 var db *sql.DB
