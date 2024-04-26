@@ -4,6 +4,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	_ "github.com/mattn/go-sqlite3"
 	"io"
@@ -27,6 +28,16 @@ type FrpspRequest struct {
 		RemoteAddr string `json:"remote_addr"`
 	} `json:"content"`
 }
+type IpInfo struct {
+	Ip       string `json:"ip"`
+	City     string `json:"city"`
+	Region   string `json:"region"`
+	Country  string `json:"country"`
+	Loc      string `json:"loc"`
+	Org      string `json:"org"`
+	Postal   string `json:"postal"`
+	Timezone string `json:"timezone"`
+}
 
 func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 	bin, err := io.ReadAll(req.Body)
@@ -48,8 +59,16 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	remoteAddr := strings.Split(frpspReq.Content.RemoteAddr, ":")[0]
+	loc, err := getIpCountry(remoteAddr)
+	if err != nil {
+		log.Println("getIpLoc error: ", err.Error())
+	} else if loc != "CN" {
+		http.Error(res, `{"reject": true,"reject_reason": "invalid user(no CN)"}`, 200)
+		return
+	}
 	var isBlocked bool
 	var count int
+
 	count, err = checkIp(remoteAddr, 10*time.Minute)
 	if err != nil {
 		return
@@ -86,15 +105,63 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 	}
 	http.Error(res, `{"reject": false,"unchange": true}`, 200)
 }
+func getIpCountry(remoteAddr string) (country string, err error) {
+	var host string
+	var rows *sql.Rows
+	var resp *http.Response
+	var body []byte
+	rows, err = db.Query("SELECT host,country FROM country WHERE host = ?", remoteAddr)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&host, &country)
+		if err != nil {
+			return
+		}
+		if country != "" {
+			return
+		}
+	}
+	resp, err = http.Get(fmt.Sprintf("https://ipinfo.io/%s/json?token=1564640ae4bce5", remoteAddr))
+	if err != nil {
+		return
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	ipInfo := new(IpInfo)
+	err = json.Unmarshal(body, ipInfo)
+	if err != nil {
+		return
+	}
+	if ipInfo.Country == "" {
+		return "", errors.New("country is nil")
+	}
+	wg.Lock()
+	defer wg.Unlock()
+	insertData := `
+		INSERT INTO country (host, country) VALUES (?,?);
+	`
+	_, err = db.Exec(insertData, remoteAddr, ipInfo.Country)
+	if err != nil {
+		return
+	}
+	return ipInfo.Country, nil
+}
 func checkIp(remoteAddr string, interval time.Duration) (count int, err error) {
+	var host string
+	var timestamp int
+
 	rows, e := db.Query("SELECT host,timestamp FROM ip WHERE timestamp >= ? and host = ?", time.Now().Add(-interval).Unix(), remoteAddr)
 	if e != nil {
 		err = e
 		return
 	}
 	defer rows.Close()
-	var host string
-	var timestamp int
+
 	for rows.Next() {
 		err = rows.Scan(&host, &timestamp)
 		if err != nil {
@@ -125,6 +192,12 @@ func main() {
                                            timestamp INT,
                                            isBlacked BOOLEAN
 );
+		CREATE TABLE IF NOT EXISTS country (
+                                           id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                           host TEXT NOT NULL,
+                                           country TEXT
+);
+
 	`
 		_, err = db.Exec(createTable)
 		if err != nil {
