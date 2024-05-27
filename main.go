@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,14 @@ func FrpspHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	remoteAddr := strings.Split(frpspReq.Content.RemoteAddr, ":")[0]
+	if whiteList != nil {
+		for _, item := range whiteList {
+			if item == remoteAddr {
+				http.Error(res, `{"reject": false,"unchange": true}`, 200)
+				return
+			}
+		}
+	}
 	loc, err := getIpCountry(remoteAddr)
 	if err != nil {
 		log.Println("getIpLoc error: ", err.Error())
@@ -174,6 +183,7 @@ func checkIp(remoteAddr string, interval time.Duration) (count int, err error) {
 
 var db *sql.DB
 var wg sync.RWMutex
+var whiteList []string
 
 func main() {
 	if db == nil {
@@ -184,6 +194,9 @@ func main() {
 			return
 		}
 		defer db.Close()
+		if len(os.Args) == 2 {
+			whiteList = append(whiteList, strings.Split(os.Args[1], ",")...)
+		}
 
 		createTable := `
 		CREATE TABLE IF NOT EXISTS ip (
